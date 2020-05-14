@@ -26,8 +26,8 @@ AddrCheckStruct hyundai_rx_checks[] = {
   //{.msg = {{902, 0, 8, .max_counter = 15U,  .expected_timestep = 10000U}}},
   {.msg = {{902, 0, 8, .max_counter = 0U,  .expected_timestep = 10000U}}},
   //{.msg = {{916, 0, 8, .check_checksum = true, .max_counter = 7U, .expected_timestep = 10000U}}},
-  {.msg = {{916, 0, 8, .check_checksum = false, .max_counter = 0U, .expected_timestep = 10000U}}},
-  {.msg = {{1057, 0, 8, .check_checksum = true, .max_counter = 15U, .expected_timestep = 20000U}}},
+  //{.msg = {{916, 0, 8, .check_checksum = false, .max_counter = 0U, .expected_timestep = 10000U}}},
+  //{.msg = {{1057, 0, 8, .check_checksum = true, .max_counter = 15U, .expected_timestep = 20000U}}},
 };
 const int HYUNDAI_RX_CHECK_LEN = sizeof(hyundai_rx_checks) / sizeof(hyundai_rx_checks[0]);
 
@@ -39,10 +39,6 @@ static uint8_t hyundai_get_counter(CAN_FIFOMailBox_TypeDef *to_push) {
     cnt = (GET_BYTE(to_push, 7) >> 4) & 0x3;
   } else if (addr == 902) {
     cnt = ((GET_BYTE(to_push, 3) >> 6) << 2) | (GET_BYTE(to_push, 1) >> 6);
-  } else if (addr == 916) {
-    cnt = (GET_BYTE(to_push, 1) >> 5) & 0x7;
-  } else if (addr == 1057) {
-    cnt = GET_BYTE(to_push, 7) & 0xF;
   } else {
     cnt = 0;
   }
@@ -86,7 +82,7 @@ static int hyundai_rx_hook(CAN_FIFOMailBox_TypeDef *to_push) {
                                  hyundai_get_checksum, hyundai_compute_checksum,
                                  hyundai_get_counter);
 
-  bool unsafe_allow_gas = unsafe_mode & UNSAFE_DISABLE_DISENGAGE_ON_GAS;
+  //bool unsafe_allow_gas = unsafe_mode & UNSAFE_DISABLE_DISENGAGE_ON_GAS;
 
   int addr = GET_ADDR(to_push);
   int bus = GET_BUS(to_push);
@@ -98,10 +94,9 @@ static int hyundai_rx_hook(CAN_FIFOMailBox_TypeDef *to_push) {
       update_sample(&torque_driver, torque_driver_new);
     }
 
-    // enter controls on rising edge of ACC, exit controls on ACC off
-    if (addr == 1057) {
-      // 2 bits: 13-14
-      int cruise_engaged = (GET_BYTES_04(to_push) >> 13) & 0x3;
+    // enter controls on rising edge of cruise screen on, exit controls on cruise screen off
+    if (addr == 608) {
+      bool cruise_engaged = ((GET_BYTES_04(to_push) >> 25) & 0x1) != 0; // CRUISE_LAMP_M, bit 25
       if (cruise_engaged && !cruise_engaged_prev) {
         controls_allowed = 1;
       }
@@ -111,6 +106,7 @@ static int hyundai_rx_hook(CAN_FIFOMailBox_TypeDef *to_push) {
       cruise_engaged_prev = cruise_engaged;
     }
 
+    /* TODO
     // exit controls on rising edge of gas press
     if (addr == 608) {
       bool gas_pressed = (GET_BYTE(to_push, 7) >> 6) != 0;
@@ -119,6 +115,7 @@ static int hyundai_rx_hook(CAN_FIFOMailBox_TypeDef *to_push) {
       }
       gas_pressed_prev = gas_pressed;
     }
+    */
 
     // sample subaru wheel speed, averaging opposite corners
     if (addr == 902) {
@@ -128,6 +125,7 @@ static int hyundai_rx_hook(CAN_FIFOMailBox_TypeDef *to_push) {
       vehicle_moving = hyundai_speed > HYUNDAI_STANDSTILL_THRSLD;
     }
 
+    /* TODO
     // exit controls on rising edge of brake press
     if (addr == 916) {
       bool brake_pressed = (GET_BYTE(to_push, 6) >> 7) != 0;
@@ -136,11 +134,7 @@ static int hyundai_rx_hook(CAN_FIFOMailBox_TypeDef *to_push) {
       }
       brake_pressed_prev = brake_pressed;
     }
-
-    // check if stock camera ECU is on bus 0
-    if ((safety_mode_cnt > RELAY_TRNS_TIMEOUT) && (addr == 832)) {
-      relay_malfunction_set();
-    }
+    */
   }
   return valid;
 }
@@ -218,28 +212,12 @@ static int hyundai_tx_hook(CAN_FIFOMailBox_TypeDef *to_send) {
   return tx;
 }
 
-static int hyundai_fwd_hook(int bus_num, CAN_FIFOMailBox_TypeDef *to_fwd) {
-
-  int bus_fwd = -1;
-  int addr = GET_ADDR(to_fwd);
-  // forward cam to ccan and viceversa, except lkas cmd
-  if (!relay_malfunction) {
-    if (bus_num == 0) {
-      bus_fwd = 2;
-    }
-    if ((bus_num == 2) && (addr != 832) && (addr != 1157)) {
-      bus_fwd = 0;
-    }
-  }
-  return bus_fwd;
-}
-
 const safety_hooks hyundai_hooks = {
   .init = nooutput_init,
   .rx = hyundai_rx_hook,
   .tx = hyundai_tx_hook,
   .tx_lin = nooutput_tx_lin_hook,
-  .fwd = hyundai_fwd_hook,
+  .fwd = default_fwd_hook,
   .addr_check = hyundai_rx_checks,
   .addr_check_len = sizeof(hyundai_rx_checks) / sizeof(hyundai_rx_checks[0]),
 };

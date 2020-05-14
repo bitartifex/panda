@@ -363,6 +363,11 @@ void ignition_can_hook(CAN_FIFOMailBox_TypeDef *to_push) {
       // GTW_status
       ignition_can = (GET_BYTE(to_push, 0) & 0x1) != 0;
     }
+    // Hyundai exception
+    if ((addr == 0x541) && (len == 8)) {
+      // CGW1 bits 0..2 are "ignition switch"
+      ignition_can = (GET_BYTE(to_push, 0) & 0x7) != 0;
+    }
   }
 }
 
